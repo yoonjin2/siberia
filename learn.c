@@ -3,10 +3,12 @@
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
+#include <time.h>
 #include <stdlib.h>
 #include <stdint.h>
 #define IGNORE 100000000
-#define PREFIX 512
+#define PREFIX INT_MAX
+#define	MAX_FAIL 100
 
 void strrem (char * orig, char *tok) {
 	size_t len=strlen(tok);
@@ -17,147 +19,223 @@ void strrem (char * orig, char *tok) {
 }
 
 char * book_orig;
-float answer;
-float THRESHOLD;
-neuron_t ** initial_neuronset;
+char * book;
+float THRESHOLD=0.7;
+float cache=0;
+int learning_rate=1;
+int fail=0;
+int DEPTH=0;
+uint32_t book_page=0;
+neuron_t * initial_neuronset;
 neuron_t ** hidden_neuronset;
-neuron_t ** result_neuronset;
+neuron_t * result_neuronset;
 uint64_t input_size=1;
-uint64_t hidden_size=1;
 uint64_t result_size=1;
-float learning_rate=0.1;
 
-_Bool response (float net,float target,float threshold) {
-	printf("net/target is %f\n" , net/target);
-	return net/target < threshold;
-}
-_Bool schedule_learning_rate(float failrate, _Bool last_strategy) {
-	if (last_strategy) {
-		learning_rate-=(float)(rand()%SCHEDULE_PRECISION_RATE)/SCHEDULE_PRECISION_RATE*100;
-		return 0;
-	} else {
-		learning_rate+=(float)(rand()%SCHEDULE_PRECISION_RATE)/SCHEDULE_PRECISION_RATE*100;
-		return 1;
+float reLU (float net) {
+
+	if (net<0) {
+		return net*0.01;
 	}
-
+	return net;
 }
 void read(FILE *instruction) {
-	uint64_t size=PREFIX;
+	srand(time(NULL));
+	int size=PREFIX;
 	uint64_t input_size=1;
 	book_orig=(char *)malloc(sizeof(char)*size);
-	initial_neuronset = (neuron_t **)malloc(sizeof(neuron_t *)*input_size);
-	while (!feof(instruction)) {
-		size+=PREFIX;
-		fgets( book_orig , 512, instruction );
-		book_orig=(char *)realloc(book_orig,sizeof(char)*size);
-	}
+	initial_neuronset = (neuron_t *)realloc(initial_neuronset, sizeof(neuron_t)*input_size);
+	fgets( book_orig , PREFIX, instruction );
 
 }
 
 
 void init_neuralnet (int depth , float threshold) {
-	THRESHOLD=threshold;
-	
-	char * book=malloc(sizeof(char*)*strlen(book_orig));
-	sscanf(book_orig,"%[^\n]" , book);
-	strrem(book_orig,book);
-	input_size = strlen(book);
-	if (book==NULL) {
-		exit(0);
+	book_page++;
+	fprintf(stderr,"Initial Dataset size:%lu" ,strlen(book_orig));
+	if(book_page==1) {
+		book=malloc(sizeof(char*)*strlen(book_orig));
+	} else {
+		book=realloc(book,sizeof(char*)*strlen(book_orig));
 	}
-	char * split_ptr = strtok ( book , ",");
+	if (0.1<THRESHOLD && THRESHOLD < 1) {
+		THRESHOLD=threshold;
+	}
+	DEPTH=depth;
 
-	while (split_ptr!=NULL) {
-		
-		initial_neuronset[input_size-1]=(neuron_t *)malloc(sizeof(neuron_t));
-		initial_neuronset[input_size-1]->data=strtof(split_ptr,NULL);
-		initial_neuronset[input_size-1]->weight=-(depth/2)+rand()%(depth/2);
-		initial_neuronset[input_size-1]->is_active=1;
-		split_ptr = strtok( NULL , "," );
-		input_size++;
-		initial_neuronset = (neuron_t **)realloc(initial_neuronset , sizeof(neuron_t *)*input_size);
+	if(book_orig==NULL) {
+		return;
 	}
+	sscanf(book_orig,"%s" , book);
+	strrem(book_orig,book);
+	input_size = 1;
+	char * split_ptr = strtok ( book , ",");
+	fprintf(stderr,"page: %d, split_ptr:%s\n", book_page, split_ptr);
+	while(1) {
+		if (split_ptr==NULL) {
+			break;
+		}
+		fprintf(stderr,"page:%d, split_ptr:%s\n", book_page, split_ptr);
+		while (initial_neuronset[input_size-1].weight==0.0F) {	
+			initial_neuronset[input_size-1].weight=(float)(rand()%HIDDEN_SIZE)/(float)(HIDDEN_SIZE);
+		}
+		float sp=atof(split_ptr);
+		fprintf(stderr,"adding : atof(\"%f\n\")" , sp);
+		initial_neuronset[input_size-1].data=sp;
+		initial_neuronset[input_size-1].net=0;
+		initial_neuronset[input_size-1].is_active=1;
+		input_size++;
+		initial_neuronset = (neuron_t *)realloc(initial_neuronset,sizeof(neuron_t )*input_size);
+		split_ptr = strtok( NULL , "," );
+	}
+	printf("\n");
 	puts("Read task...");
 
 }
+void add_new(float nval) {
+		input_size++;
+		fprintf(stderr,"adding : %f\n" , nval);
+		initial_neuronset = (neuron_t *)realloc(initial_neuronset,sizeof(neuron_t )*input_size);
+		initial_neuronset[input_size-1].data=nval;
+		initial_neuronset[input_size-1].net=0;
+		initial_neuronset[input_size-1].is_active=1;
+}
 
-void learn (int result_len , int layers) { 
+	
+
+float learn (int result_len , int layers) { 
+	float smaller=0,bigger=0;
 	puts("Start learning...");
+	hidden_neuronset=(neuron_t **)malloc(sizeof(neuron_t *)*layers);
+	fprintf(stderr,"Input Size is :%ld\n" , input_size);
+	if(input_size<5) {
+		exit(0);
+	}
+		
+	int bigger_size=HIDDEN_SIZE>input_size?HIDDEN_SIZE:input_size;
+	neuron_t * in_neuronset=malloc(sizeof(neuron_t)*bigger_size);
+	memcpy(in_neuronset,initial_neuronset,sizeof(neuron_t)*input_size);
+	int rep_cp;
+	for(rep_cp=0;rep_cp<layers;rep_cp++) {
+		hidden_neuronset[rep_cp]=(neuron_t *)malloc(sizeof(neuron_t)*HIDDEN_SIZE);
+	}
+	fprintf(stderr,"init_neuronset: Initialize input layers\n");
 
-	neuron_t ** in_neuronset=(neuron_t **)malloc(sizeof(neuron_t *)*input_size);
-	memcpy(in_neuronset,initial_neuronset, sizeof(neuron_t *)*input_size);
-	hidden_size = input_size+1;
 	auto int repeat_Main;
-	auto _Bool last_strategy=0;
 	auto int i=0;	
 
 	for(repeat_Main=0;repeat_Main<layers;repeat_Main++) {	
-		hidden_neuronset=(neuron_t **)malloc(sizeof(neuron_t *)*(hidden_size));
-		for (i=0;i<hidden_size;i++) {
-			hidden_neuronset[i]=(neuron_t *)malloc(sizeof(neuron_t));
-			auto int current_repeat=0;
-			auto int failrate=0;
-			while(1) {
-				current_repeat++;
-				auto int net_count=0;
-				hidden_neuronset[i]->net=0;
-				for (net_count=0;net_count<hidden_size;net_count++) {
-					if (in_neuronset[net_count]->data==(float)-IGNORE) {
-						break;
-					}
-					hidden_neuronset[i]->net+=in_neuronset[net_count]->weight*in_neuronset[net_count]->data;
-				}
-				if (hidden_neuronset[i]->net>0) {
-					printf("net is %f\n",hidden_neuronset[i]->net);
-				} else {
-					hidden_neuronset[i]->is_active=0;
-					hidden_neuronset[i]->data=(float)-IGNORE;
-					break;
-				}
-				hidden_neuronset[i]->is_active=response(hidden_neuronset[i]->net,in_neuronset[i]->data,THRESHOLD);
-				if(!hidden_neuronset[i]->is_active) {
-					failrate++;
-					last_strategy=schedule_learning_rate(failrate,last_strategy);
-					hidden_neuronset[i]->weight+=hidden_neuronset[i]->data*learning_rate*(in_neuronset[i]->data - hidden_neuronset[i]->is_active);
-					hidden_neuronset[i]->data=hidden_neuronset[i]->net;
-				} else {
-					break;
-				}
-			}
+		fprintf(stderr,"hidden_neuronset: Initialize Hidden layers\n");
+		for (i=0;i<HIDDEN_SIZE;i++) {
+		while (hidden_neuronset[repeat_Main][i].weight==0.0F) {	
+			hidden_neuronset[repeat_Main][i].weight=(float)(rand()%HIDDEN_SIZE)/(float)(HIDDEN_SIZE);
 		}
-		in_neuronset=(neuron_t **)(neuron_t **)realloc(in_neuronset,sizeof(neuron_t *)*hidden_size);
-		memcpy(in_neuronset,hidden_neuronset, sizeof(neuron_t *)*hidden_size);
-		input_size=hidden_size;
-		hidden_size++;
-	}
-
-	hidden_size--;
-	result_size=result_len;
-	result_neuronset=(neuron_t **)malloc(sizeof(neuron_t *)*result_len);
-
-	auto int current_repeat=0;
-	auto int failrate=0;
-	for (i=0;i<result_size;i++) {
-		result_neuronset[i]=(neuron_t *)malloc(sizeof(neuron_t));
-		while(1) {
-			current_repeat++;
-			auto int net_count=0;
-			result_neuronset[i]->net=0;
-			for (net_count=0;net_count<input_size;net_count++) {
-				if (in_neuronset[net_count]->data == (float)-IGNORE) {
+		hidden_neuronset[repeat_Main][i].net=0;
+				auto int weight_count=0;
+			while(1) {
+				for (weight_count=0;weight_count<input_size;weight_count++) {
+					if (in_neuronset[weight_count].weight==(float)-IGNORE) {
+						continue;
+					}
+					hidden_neuronset[repeat_Main][i].net+=(in_neuronset[weight_count].data*in_neuronset[weight_count].weight);
+				}
+				
+				hidden_neuronset[repeat_Main][i].data=reLU(hidden_neuronset[repeat_Main][i].net);
+				if (hidden_neuronset[repeat_Main][i].weight==0) {
+					hidden_neuronset[repeat_Main][i].is_active=0;
+					hidden_neuronset[repeat_Main][i].weight=(float)-IGNORE;
 					break;
 				}
-				result_neuronset[i]->net+=in_neuronset[net_count]->weight*in_neuronset[net_count]->data;
+				hidden_neuronset[repeat_Main][i].is_active=reLU(hidden_neuronset[repeat_Main][i].net)>0?1:0;
+				smaller=in_neuronset[i].data;
+				bigger=hidden_neuronset[repeat_Main][i].data;
+				if(smaller==0.0) {
+					break;
+				}
+				if(bigger==0.0) {
+					break;
+				}
+				if (bigger<smaller) {
+					float tmp=bigger;
+					bigger=smaller;
+					smaller=tmp;
+				}
+			if(smaller/bigger==1.0F) {
+				break;
 			}
-			hidden_neuronset[i]->is_active=fabsf(hidden_neuronset[i]->data)>=0.5?1:0;
-			if(!hidden_neuronset[i]->is_active) {
-				failrate++;
-					last_strategy=schedule_learning_rate(failrate,last_strategy);
-				result_neuronset[i]->weight+=result_neuronset[i]->data*learning_rate*(in_neuronset[i]->data - result_neuronset[i]->is_active);
+			fprintf(stderr,"Current Accuracy:%f\n",1.0-smaller/bigger);
+			if(((1.0-smaller/bigger)<(ALLOWED_ACCURACY))) {
+				hidden_neuronset[repeat_Main][input_size-1].weight+=(bigger-reLU(hidden_neuronset[repeat_Main][input_size-1].net))*learning_rate;
+				fail++;
+				if((fail%MAX_FAIL==0)&&(learning_rate>0.0099)) {
+					learning_rate-=LEARNING_ADJUST_RATE;
+					fail=0;
+					continue;
+				}
 			} else {
 				break;
 			}
 		}
-		printf("Data Class %d: learning rate:%f\n" , i+1, (float)(failrate)/(float)(current_repeat));
 	}
+
+	input_size=HIDDEN_SIZE;
+	in_neuronset=hidden_neuronset[repeat_Main];
+	memcpy(in_neuronset,hidden_neuronset[repeat_Main],sizeof(neuron_t)*input_size);
+}
+
+	repeat_Main=layers-1;
+	result_neuronset=(neuron_t *)malloc(sizeof(neuron_t)*result_len);
+
+
+	repeat_Main=layers-1;
+	auto int current_repeat=0;
+	puts("Starting final task");
+
+		result_neuronset[i].weight=sqrt((float)(rand()%HIDDEN_SIZE)/(float)(HIDDEN_SIZE));
+
+		i=0;
+
+	while(1) {
+		current_repeat++;
+		auto int weight_count=0;
+		result_neuronset[i].net=0;
+		for (weight_count=0;weight_count<input_size;weight_count++) {
+			if (in_neuronset[weight_count].weight == (float)-IGNORE) {
+				continue;
+			}
+			result_neuronset[i].net+=(hidden_neuronset[repeat_Main][weight_count].net*hidden_neuronset[repeat_Main][weight_count].weight);
+		}
+		result_neuronset[i].data=reLU(result_neuronset[i].net);
+		result_neuronset[i].is_active=fabsf(result_neuronset[i].weight)>0?1:0;
+		smaller=hidden_neuronset[repeat_Main][i].data;
+		bigger=result_neuronset[i].data;
+		if (smaller==0) {
+			break;
+		}
+		if (bigger==0) {
+			break;
+		}
+		if (bigger<smaller) {
+				auto float tmp=bigger;
+				bigger=smaller;
+				smaller=tmp;
+		}
+		if(smaller/bigger==1.0F) {
+			break;
+		}
+		fprintf(stderr,"Current Accuracy:%f\n",1.0-smaller/bigger);
+		if(((1.0-smaller/bigger)<(ALLOWED_ACCURACY))) {
+			result_neuronset[i].weight+=(bigger-reLU(result_neuronset[i].net))*learning_rate;
+				if((fail%MAX_FAIL==0)&&(learning_rate>0.1)) {
+					learning_rate-=LEARNING_ADJUST_RATE;
+					fail=0;
+					continue;
+				}
+		} else {
+			break;
+		}
+	}
+	float result=result_neuronset[i].data/pow(HIDDEN_SIZE,layers)/pow(layers,2)/2;
+	fprintf(stderr,"estimated:%f\n" , result);
+	return result;
 }
