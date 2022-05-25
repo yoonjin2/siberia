@@ -76,7 +76,7 @@ void init_neuralnet (int depth , float threshold) {
 			break;
 		}
 		fprintf(stderr,"page:%d, split_ptr:%s\n", book_page, split_ptr);
-		while (initial_neuronset[input_size-1].weight==0.0F) {	
+		while (initial_neuronset[input_size-1].weight<=0.0F) {	
 			initial_neuronset[input_size-1].weight=(float)(rand()%HIDDEN_SIZE)/(float)(HIDDEN_SIZE);
 		}
 		float sp=atof(split_ptr);
@@ -126,7 +126,7 @@ float learn (int result_len , int layers) {
 	for(repeat_Main=0;repeat_Main<layers;repeat_Main++) {	
 		fprintf(stderr,"hidden_neuronset: Initialize Hidden layers\n");
 		for (i=0;i<HIDDEN_SIZE;i++) {
-		while (hidden_neuronset[repeat_Main][i].weight==0.0F) {	
+		while (hidden_neuronset[repeat_Main][i].weight<=0.0F) {	
 			hidden_neuronset[repeat_Main][i].weight=(float)(rand()%HIDDEN_SIZE)/(float)(HIDDEN_SIZE);
 		}
 		hidden_neuronset[repeat_Main][i].net=0;
