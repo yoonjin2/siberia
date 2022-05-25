@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #define CHARACTERS 1
-#define LAYER_LEN 5
+#define LAYER_LEN 8
 int main (int argc, char **argv) {
 	if (argc<2) {
 		return 1;

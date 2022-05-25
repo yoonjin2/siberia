@@ -1,6 +1,6 @@
-CC=gcc
+CC=clang
 OBJS = main.o learn.o
-CFLAGS = -Wall -O2 -std=c99 -lm
+CFLAGS = -Wall -O2 -std=c99 -lm -fno-builtin
 TARGET=siberia
 $(TARGET):	$(OBJS)
 	$(CC)  $(CFLAGS) -o  $@ $(OBJS)
